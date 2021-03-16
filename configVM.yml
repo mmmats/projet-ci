@@ -1,0 +1,54 @@
+---
+
+
+- name: Installation webservers
+  hosts: webservers
+  remote_user: admin
+  become: yes
+  vars:
+    ansible_ssh_private_key_file: "/home/ansible/roles/aws-vpc/key.ppk"
+  tasks:
+    - name: Installation required packages
+      apt:
+        name: "{{item}}"
+        state: latest
+        update_cache: yes
+      loop:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - gnupg
+        - lsb-release
+    - name: Docker apt key
+      apt_key:
+        url: https://download.docker.com/linux/debian/gpg
+        state: present
+    - name: Docker apt repository
+      apt_repository:
+        repo: deb https://download.docker.com/linux/debian buster stable
+        state: present
+    - name: Installation Docker
+      apt:
+        name: "{{item}}"
+        state: latest
+        update_cache: yes
+      loop:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+    - name: Installation python-docker
+      apt: 
+        name: python-docker
+    - name: Lancement container apache2
+      docker_container:
+        name: apache2
+        image: httpd
+        state: started
+        restart: yes
+        recreate: yes
+        ports:
+          - "80:80"
+        volumes:
+          - "/var/www/html/:/usr/local/apache2/htdocs/"
+
+...

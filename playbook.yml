@@ -1,0 +1,147 @@
+---
+
+- name: projet1
+  hosts: localhost
+  vars:
+    aws_access_key: "AKIAXXXNTM5FOO5I5T5Q"
+    aws_secret_key: "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"
+    region: "eu-central-1"
+
+    # VPC
+    vpc_cidr: 10.10.0.0/24
+    vpc_name: "VPC mats"
+
+    # Subnet
+    subnet_name: "Subnet mats"
+    subnet_cidr: 10.10.0.0/26
+
+    # Internet Gateway Name
+    igw_name: "GW mats"
+
+    securitygroup_name: "SecurityGroup mats"
+
+    ec2_tag: "WebServer mats"
+
+    #The local path to which we would save our EC2 Private Key
+    ec2_key_directory: "/home/ansible/roles/aws-vpc/"
+    keypair_name: "ec2_key_pair"
+
+
+  tasks:
+    - name: create VPC
+      ec2_vpc_net:
+        name: "VPC mats"
+        cidr_block: "{{ vpc_cidr }}"
+        region: "{{ region }}"
+        state: present
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+      register: vpc
+
+    - name: associate subnet to the VPC
+      ec2_vpc_subnet:
+       state: present
+       vpc_id: "{{ vpc.vpc.id }}"
+       region: "{{ region }}"
+       cidr: "{{ subnet_cidr }}"
+       aws_access_key: "{{ aws_access_key }}"
+       aws_secret_key: "{{ aws_secret_key }}"
+       map_public: yes
+       resource_tags:
+         Name: "{{ subnet_name }}"
+      register: subnet
+
+    - name: create IGW
+      ec2_vpc_igw:
+       vpc_id: "{{ vpc.vpc.id }}"
+       region: "{{ region }}"
+       aws_access_key: "{{ aws_access_key }}"
+       aws_secret_key: "{{ aws_secret_key }}"
+       state: "present"
+       tags:
+         Name: "{{ igw_name }}"
+      register: igw
+
+    - name: Route IGW
+      ec2_vpc_route_table:
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{ region }}"
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        subnets:
+          - "{{ subnet.subnet.id }}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{ igw.gateway_id  }}"
+     
+    # update the CIDR address in the SSH port section.
+     
+    - name: Create Security Group
+      ec2_group:
+        name: Web DMZ
+        description: DMZ Security Group
+        vpc_id: "{{ vpc.vpc.id }}"
+        region: "{{ region }}"
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        rules:
+          - proto: tcp
+            ports:
+            - 80
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            ports:
+            - 22
+            cidr_ip: 0.0.0.0/0
+      register: security_group
+
+
+    - name: create a new ec2 key pair
+      ec2_key:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        name: ec2_keypair
+        region: "{{ region }}"
+      register: keypair
+     
+    - name: Copy EC2 Private Key locally so it can be later on used to SSH into the instance
+      copy: content="{{ keypair.key.private_key }}" dest={{ ec2_key_directory }}key.ppk
+      when: keypair.changed == true
+     
+    - name: Create EC2 web server
+      ec2:
+        image: ami-0f1026b68319bad6c
+        wait: yes
+        instance_type: t2.micro
+        region: "{{ region }}"
+        group_id: "{{ security_group.group_id }}"
+        vpc_subnet_id: "{{ subnet.subnet.id }}"
+        key_name: "{{ keypair.key.name  }}"
+        count_tag:
+          Name: apacheserver
+        exact_count: 1
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+      register: apachemats
+
+    - name: Create EC2 git server
+      ec2:
+        image: ami-0f1026b68319bad6c
+        wait: yes
+        instance_type: t2.large
+        region: "{{ region }}"
+        group_id: "{{ security_group.group_id }}"
+        vpc_subnet_id: "{{ subnet.subnet.id }}"
+        key_name: "{{ keypair.key.name  }}"
+        count_tag:
+          Name: gitserver
+        exact_count: 1
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+      register: gitmats
+
+
+    # - name: display gitmats results
+    #   debug: var=gitmats
+
+...
